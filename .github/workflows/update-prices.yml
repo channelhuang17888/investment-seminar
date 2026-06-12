@@ -1,0 +1,94 @@
+name: Update Stock Data
+
+on:
+  schedule:
+    - cron: '5 1 * * 1-5'
+    - cron: '0 2,3,4,5,6 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch stock prices & history
+        run: |
+          python3 << 'PYEOF'
+          import json, urllib.request, datetime, os, ssl, time
+
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+
+          STOCKS = {
+            'tse': ['1612','2059','2303','2316','2327','2329','2330','2385','2454','3026','3324'],
+            'otc': ['3042','3059','3167','3450','3485','3653','5289','5511','6121','6147','6223','6227','6442','6449','6669','6788','6840','7871','8299','9939']
+          }
+
+          HEADERS = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, */*',
+            'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+          }
+
+          os.makedirs('data', exist_ok=True)
+          prices = {}
+          now_utc = datetime.datetime.now(datetime.timezone.utc)
+          updated = now_utc.isoformat()
+
+          for ex, codes in STOCKS.items():
+            suffix = '.TW' if ex == 'tse' else '.TWO'
+            for code in codes:
+              url = f'https://query1.finance.yahoo.com/v8/chart/{code}{suffix}?interval=1d&range=2y&includePrePost=false'
+              for attempt in range(3):
+                try:
+                  req = urllib.request.Request(url, headers=HEADERS)
+                  r = urllib.request.urlopen(req, context=ctx, timeout=20)
+                  data = json.loads(r.read())
+                  result = data['chart']['result'][0]
+                  meta = result['meta']
+                  ts = result['timestamp']
+                  q = result['indicators']['quote'][0]
+
+                  ohlc = []
+                  for i, t in enumerate(ts):
+                    try:
+                      o,h,l,c = q['open'][i],q['high'][i],q['low'][i],q['close'][i]
+                      if o and h and l and c:
+                        ohlc.append({
+                          'time': datetime.datetime.utcfromtimestamp(t).strftime('%Y-%m-%d'),
+                          'open': round(o,2), 'high': round(h,2),
+                          'low': round(l,2), 'close': round(c,2),
+                        })
+                    except: pass
+
+                  with open(f'data/{code}.json', 'w') as f:
+                    json.dump({'updated': updated, 'data': ohlc}, f, separators=(',',':'))
+
+                  p = meta.get('regularMarketPrice', 0)
+                  prev = meta.get('previousClose') or meta.get('chartPreviousClose', 0)
+                  chg = round((p-prev)/prev*100, 2) if prev and prev > 0 else 0
+                  prices[code] = {'p': round(p,2), 'prev': round(prev,2) if prev else 0, 'chgPct': chg}
+                  print(f'OK {code}{suffix}: {p} ({chg:+.2f}%)')
+                  time.sleep(0.3)
+                  break
+                except Exception as e:
+                  print(f'RETRY {attempt+1} {code}: {e}')
+                  time.sleep(2)
+
+          with open('data/prices.json', 'w') as f:
+            json.dump({'updated': updated, 'prices': prices}, f, separators=(',',':'))
+
+          print(f'\nDone: {len(prices)}/{sum(len(v) for v in STOCKS.values())} stocks updated')
+          PYEOF
+
+      - name: Commit & push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet && echo "No changes" || (git commit -m "stock data $(date -u '+%Y-%m-%d %H:%M UTC')" && git push)
