@@ -465,7 +465,7 @@ sb.auth.onAuthStateChange(async(event,session)=>{
       sb.from('activity_log').insert({user_email:session.user.email,codename:cn||null,action:event==='SIGNED_IN'?'login':'view',ua:navigator.userAgent.substring(0,250)});
     }
     if(session.user.email===ADMIN_EMAIL){document.getElementById('admin-panel').style.display='block';loadAdminLog();}
-    initApp();
+    initApp(); prefetchAllStocks();
   } else {
     document.getElementById('watermark').style.backgroundImage='';
     ['codename-modal','invite-modal'].forEach(id=>document.getElementById(id).style.display='none');
@@ -901,13 +901,28 @@ async function fetchWithTimeout(url, ms){
   catch(e){ clearTimeout(t); throw e; }
 }
 
+async function prefetchAllStocks(){
+ const codes=new Map();
+ for(const m of MEETINGS){for(const mb of m.members){for(const s of(mb.stocks||[])){if(s.code&&!codes.has(s.code))codes.set(s.code,s.ex||'tse');}}}
+ const entries=[...codes.entries()];
+ for(let i=0;i<entries.length;i+=4){
+  await Promise.all(entries.slice(i,i+4).map(async([code])=>{
+   if(_stockDataCache[code])return;
+   try{const r=await fetch(DATA_BASE+'/'+code+'.json');if(r.ok){const j=await r.json();if(j.data&&j.data.length)_stockDataCache[code]=j;}}catch(e){}
+  }));
+ }
+}
 async function fetchYahooChart(code, ex, range){
+ // Check in-memory cache first
+ function _filterRange(d,r){const n=new Date(),c=new Date();if(r==='3mo')c.setMonth(n.getMonth()-3);else if(r==='6mo')c.setMonth(n.getMonth()-6);else if(r==='1y')c.setFullYear(n.getFullYear()-1);else c.setFullYear(n.getFullYear()-2);return d.filter(x=>x.time>=c.toISOString().split('T')[0]);}
+ if(_stockDataCache[code]?.data?.length){const f=_filterRange(_stockDataCache[code].data,range);if(f.length)return{_local:true,ohlc:f};}
   // Primary: read from pre-fetched local data (no CORS, no proxy needed)
   try{
     const r=await fetchWithTimeout(`${DATA_BASE}/${code}.json`,8000);
     if(r.ok){
       const json=await r.json();
       if(json.data&&json.data.length){
+    _stockDataCache[code]=json;
         // Filter by range
         const now=new Date(), cutoff=new Date();
         if(range==='3mo') cutoff.setMonth(now.getMonth()-3);
@@ -2196,6 +2211,7 @@ function closeMarkerPopup(){ document.getElementById('marker-popup').style.displ
 // ============================================================
 // Base path for pre-fetched data (GitHub Actions writes here)
 const DATA_BASE='/investment-seminar/data';
+const _stockDataCache={};
 
 async function loadPrices(){
   const seen=new Set();
