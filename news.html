@@ -14,16 +14,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .topbar .title{flex:1;font-size:16px;font-weight:700}
 .container{max-width:760px;margin:0 auto;padding:16px}
 .post-box{background:#fff;border-radius:12px;padding:16px;margin-bottom:20px;box-shadow:0 1px 4px rgba(0,0,0,0.08)}
-.post-box h3{font-size:14px;color:#666;margin-bottom:10px}
+.post-box h3{font-size:14px;color:#666;margin-bottom:12px;font-weight:600}
+.ticker-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.ticker-row label{font-size:12px;color:#666;white-space:nowrap}
+.ticker-row input{width:120px;border:1px solid #d0dce8;border-radius:6px;padding:7px 10px;font-size:14px;outline:none}
+.ticker-row input:focus{border-color:#0066cc}
 .post-box textarea{width:100%;border:1px solid #d0dce8;border-radius:8px;padding:10px;font-size:14px;font-family:inherit;resize:vertical;min-height:80px;outline:none}
 .post-box textarea:focus{border-color:#0066cc}
 .post-row{display:flex;justify-content:flex-end;margin-top:10px}
-.post-box button{background:#0066cc;color:#fff;border:none;border-radius:8px;padding:8px 24px;font-size:14px;cursor:pointer;font-weight:700}
-.post-box button:disabled{opacity:0.5;cursor:not-allowed}
+.pbtn{background:#0066cc;color:#fff;border:none;border-radius:8px;padding:8px 24px;font-size:14px;cursor:pointer;font-weight:700}
+.pbtn:disabled{opacity:0.5;cursor:not-allowed}
 .sec-title{font-size:13px;color:#888;margin-bottom:10px;font-weight:600}
 .msg-card{background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.07)}
 .msg-meta{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
 .msg-author{font-weight:700;font-size:13px;color:#0066cc}
+.msg-ticker{background:#e8f0ff;color:#0055bb;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:0.5px}
 .msg-time{font-size:11px;color:#aaa}
 .msg-edited{font-size:11px;color:#bbb;font-style:italic}
 .msg-body{font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
@@ -49,8 +54,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div class="container">
   <div class="post-box">
     <h3>&#x767c;&#x5e03;&#x6d88;&#x606f;</h3>
+    <div class="ticker-row">
+      <label>&#x6a19;&#x7684;&#xff08;&#x9078;&#xff09;</label>
+      <input id="ta-ticker" type="text" placeholder="&#x4f8b;&#xff1a;2330" disabled>
+    </div>
     <textarea id="ta" placeholder="&#x8f38;&#x5165;&#x6d88;&#x606f;&#x3001;&#x5c0f;&#x4f5c;&#x6587;&#x3001;&#x60c5;&#x5831;..." disabled></textarea>
-    <div class="post-row"><button id="pbtn" onclick="postMsg()" disabled>&#x767c;&#x5e03;</button></div>
+    <div class="post-row"><button id="pbtn" class="pbtn" onclick="postMsg()" disabled>&#x767c;&#x5e03;</button></div>
   </div>
   <div class="sec-title">&#x6700;&#x65b0;&#x6d88;&#x606f;</div>
   <div id="list"></div>
@@ -62,49 +71,81 @@ var sb=window.supabase.createClient(SB_URL,SB_KEY);
 var curUser=null;
 sb.auth.onAuthStateChange(function(e,s){
   curUser=s&&s.user||null;
-  var ta=document.getElementById('ta'),pbtn=document.getElementById('pbtn');
-  if(ta){ta.disabled=!curUser;pbtn.disabled=!curUser;}
+  var on=!!curUser;
+  var ta=document.getElementById('ta');
+  var pbtn=document.getElementById('pbtn');
+  var tt=document.getElementById('ta-ticker');
+  if(ta){ta.disabled=!on;pbtn.disabled=!on;tt.disabled=!on;}
 });
-function dispName(n){if(!n)return'\u533f\u540d';if(n.indexOf('@')>-1)return n.split('@')[0];return n;}
-function tStr(t){return new Date(t).toLocaleString('zh-TW');}
-function esc(s){return(s||'')'.split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');}
+function dispName(n){
+  if(!n)return'\u533f\u540d';
+  if(n.indexOf('@')>-1)return n.split('@')[0];
+  return n;
+}
+function tStr(t){
+  var d=new Date(t);
+  var mm=d.getMonth()+1;
+  var dd=d.getDate();
+  var hh=d.getHours();
+  var mi=d.getMinutes();
+  return d.getFullYear()+'/'+(mm<10?'0':'')+mm+'/'+(dd<10?'0':'')+dd+' '+(hh<10?'0':'')+hh+':'+(mi<10?'0':'')+mi;
+}
+function esc(s){
+  var x=s||'';
+  x=x.split('&').join('&amp;');
+  x=x.split('<').join('&lt;');
+  x=x.split('>').join('&gt;');
+  return x;
+}
 function loadMsgs(){
-  sb.from('messages').select('*').eq('is_deleted',false).order('created_at',{ascending:false}).limit(50).then(function(r){
+  sb.from('messages').select('*').or('is_deleted.is.null,is_deleted.is.false').order('created_at',{ascending:false}).limit(50).then(function(r){
     var el=document.getElementById('list');
-    if(r.error){el.innerHTML='<p style="color:red">'+esc(r.error.message)+'<\/p>';return;}
-    if(!r.data||!r.data.length){el.innerHTML='<p class="empty">\u76ee\u524d\u6c92\u6709\u6d88\u606f<\/p>';return;}
+    if(r.error){el.innerHTML='<p style="color:red">'+esc(r.error.message)+'</p>';return;}
+    if(!r.data||!r.data.length){el.innerHTML='<p class="empty">\u76ee\u524d\u6c92\u6709\u6d88\u606f</p>';return;}
     el.innerHTML=r.data.map(function(m){
       var own=curUser&&m.user_id===curUser.id;
-      var edited=m.original_content?'<span class="msg-edited">(\u5df2\u7de8\u8f2f)<\/span>':'';
-      var actions=own?'<div class="msg-actions" id="mact-'+m.id+'"><button onclick="editMsg('+m.id+')">&#x7de8;&#x8f2f;<\/button><button class="btn-del" onclick="delMsg('+m.id+')">&#x522a;&#x9664;<\/button><\/div>':''
-      var editBox=own?'<div class="edit-box" id="ebox-'+m.id+'"><textarea id="eta-'+m.id+'">'+esc(m.content)+'<\/textarea><div class="edit-btns"><button class="btn-cancel" onclick="cancelEdit('+m.id+')">&#x53d6;&#x6d88;<\/button><button class="btn-save" onclick="saveEdit('+m.id+')">&#x5132;&#x5b58;<\/button><\/div><\/div>':'';
-      return '<div class="msg-card" id="card-'+m.id+'"><div class="msg-meta"><span class="msg-author">'+esc(dispName(m.author_name))+'<\/span><span class="msg-time">'+tStr(m.created_at)+'<\/span>'+edited+'<\/div><div class="msg-body" id="mbody-'+m.id+'">'+esc(m.content)+'<\/div>'+editBox+actions+'<\/div>';
+      var tkrTag=m.ticker?'<span class="msg-ticker">'+esc(m.ticker)+'</span>':'';
+      var edited=m.original_content?'<span class="msg-edited">(\u5df2\u7de8\u8f2f)</span>':'';
+      var actions=own?'<div class="msg-actions" id="mact-'+m.id+'"><button onclick="editMsg('+m.id+')">&#x7de8;&#x8f2f;</button><button class="btn-del" onclick="delMsg('+m.id+')">&#x522a;&#x9664;</button></div>':'';
+      var editBox=own?'<div class="edit-box" id="ebox-'+m.id+'"><textarea id="eta-'+m.id+'">'+esc(m.content)+'</textarea><div class="edit-btns"><button class="btn-cancel" onclick="cancelEdit('+m.id+')">&#x53d6;&#x6d88;</button><button class="btn-save" onclick="saveEdit('+m.id+')">&#x5132;&#x5b58;</button></div></div>':'';
+      return '<div class="msg-card" id="card-'+m.id+'"><div class="msg-meta"><span class="msg-author">'+esc(dispName(m.author_name))+'</span>'+tkrTag+'<span class="msg-time">'+tStr(m.created_at)+'</span>'+edited+'</div><div class="msg-body" id="mbody-'+m.id+'">'+esc(m.content)+'</div>'+editBox+actions+'</div>';
     }).join('');
   });
 }
 function postMsg(){
-  var ta=document.getElementById('ta'),txt=ta.value.trim();
+  var ta=document.getElementById('ta');
+  var txt=ta.value.trim();
   if(!txt||!curUser)return;
-  var pbtn=document.getElementById('pbtn');pbtn.disabled=true;
+  var pbtn=document.getElementById('pbtn');
+  pbtn.disabled=true;
+  var tkrEl=document.getElementById('ta-ticker');
+  var tkr=tkrEl.value.trim().toUpperCase();
   var a=(curUser.user_metadata&&(curUser.user_metadata.name||curUser.user_metadata.full_name))||curUser.email;
-  sb.from('messages').insert({content:txt,author_name:a,user_id:curUser.id}).then(function(r){
+  var rec={content:txt,author_name:a,user_id:curUser.id};
+  if(tkr)rec.ticker=tkr;
+  sb.from('messages').insert(rec).then(function(r){
     pbtn.disabled=false;
     if(r.error){alert('\u767c\u5e03\u5931\u6557: '+r.error.message);return;}
-    ta.value='';loadMsgs();
+    ta.value='';
+    tkrEl.value='';
+    loadMsgs();
   });
 }
 function editMsg(id){
   document.getElementById('ebox-'+id).style.display='block';
   document.getElementById('mbody-'+id).style.display='none';
-  var ma=document.getElementById('mact-'+id);if(ma)ma.style.display='none';
+  var ma=document.getElementById('mact-'+id);
+  if(ma)ma.style.display='none';
 }
 function cancelEdit(id){
   document.getElementById('ebox-'+id).style.display='none';
   document.getElementById('mbody-'+id).style.display='block';
-  var ma=document.getElementById('mact-'+id);if(ma)ma.style.display='flex';
+  var ma=document.getElementById('mact-'+id);
+  if(ma)ma.style.display='flex';
 }
 function saveEdit(id){
-  var newTxt=document.getElementById('eta-'+id).value.trim();if(!newTxt)return;
+  var newTxt=document.getElementById('eta-'+id).value.trim();
+  if(!newTxt)return;
   sb.from('messages').select('content').eq('id',id).single().then(function(r){
     if(r.error)return;
     sb.from('messages').update({content:newTxt,original_content:r.data.content,edited_at:new Date().toISOString()}).eq('id',id).then(function(u){
