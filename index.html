@@ -2037,7 +2037,8 @@ async function prefetchAllStocks(){
   }
 }
 async function fetchYahooChart(code,ex,range){
-  const ck=code+'_'+range;
+  const stockId=code.replace(/\.(TW|TWO)$/i,'');
+  const ck=stockId+'_'+range;
   if(window._stockDataCache&&window._stockDataCache[ck]){
     const c=window._stockDataCache[ck];
     return{_local:true,ohlc:c.ohlc,volume:c.volume};
@@ -2046,11 +2047,11 @@ async function fetchYahooChart(code,ex,range){
   const months=rm[range]||6;
   const s=new Date();s.setMonth(s.getMonth()-months);
   const sd=s.toISOString().split('T')[0];
-  const url='https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id='+code+'&start_date='+sd;
+  const url='https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id='+stockId+'&start_date='+sd;
   const res=await fetch(url);
   if(!res.ok)throw new Error('FinMind '+res.status);
   const json=await res.json();
-  if(!json.data||!json.data.length)throw new Error('no data');
+  if(!json.data||!json.data.length)throw new Error('no data for '+stockId);
   const ohlc=json.data.map(d=>({time:d.date,open:d.open,high:d.max,low:d.min,close:d.close}));
   const volume=json.data.map(d=>({time:d.date,value:d.Trading_Volume,color:d.close>=d.open?'rgba(255,82,82,0.4)':'rgba(0,184,148,0.4)'}));
   if(window._stockDataCache)window._stockDataCache[ck]={ohlc,volume};
