@@ -478,131 +478,84 @@ async function saveCodename(){
 }
 
 sb.auth.onAuthStateChange(async(event,session)=>{
-  if(session){
-    if(_isInvite&&(event==='SIGNED_IN'||event==='USER_UPDATED')){
-      document.getElementById('login-screen').style.display='none';
-      document.getElementById('app').style.display='none';
-      document.getElementById('invite-modal').style.display='flex';
-      document.getElementById('inv-pw1').focus(); return;
-    }
-    // 審核檢查（管理員跳過）
-    if(session.user.email!==ADMIN_EMAIL){
-      const {data:prof}=await sb.from('profiles').select('approved').eq('id',session.user.id).single();
-      if(!prof||!prof.approved){
-        document.getElementById('login-screen').style.display='none';
-        document.getElementById('invite-modal').style.display='none';
-        document.getElementById('app').style.display='none';
-        document.getElementById('pending-screen').style.display='flex';
-        return;
-      }
-    }
-    document.getElementById('pending-screen').style.display='none';
-    document.getElementById('login-screen').style.display='none';
-    document.getElementById('invite-modal').style.display='none';
-    document.getElementById('app').style.display='block';
-    const cn=getCodename(session.user), dn=cn||session.user.email;
-    document.getElementById('user-chip').textContent=dn; applyWatermark(dn);
-    if(event==='SIGNED_IN'&&!cn){
-      document.getElementById('codename-modal').style.display='flex';
-      document.getElementById('cn-input').focus();
-    } else {
-      sb.from('activity_log').insert({user_email:session.user.email,codename:cn||null,action:event==='SIGNED_IN'?'login':'view',ua:navigator.userAgent.substring(0,250)});
-    }
-    if(session.user.email===ADMIN_EMAIL){document.getElementById('admin-panel').style.display='block';loadAdminLog();loadPendingUsers();}
-    initApp();
-  } else {
-    document.getElementById('watermark').style.backgroundImage='';
-    ['codename-modal','invite-modal','pending-screen'].forEach(id=>document.getElementById(id).style.display='none');
+  if(!session){
+    document.getElementById('login-screen').style.display='';
     document.getElementById('app').style.display='none';
-    document.getElementById('login-screen').style.display='flex';
+    document.getElementById('pending-screen').style.display='none';
+    return;
   }
+  const {data:prof}=await sb.from('profiles').select('approved,codename').eq('id',session.user.id).single();
+  if(!prof||!prof.approved){
+    document.getElementById('login-screen').style.display='none';
+    document.getElementById('app').style.display='none';
+    document.getElementById('pending-screen').style.display='';
+    return;
+  }
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('pending-screen').style.display='none';
+  document.getElementById('app').style.display='';
+  if(session.user.email==='channel.huangsc@gmail.com'){
+    const adm=document.getElementById('admin-panel');
+    if(adm)adm.style.display='';
+    loadPendingUsers();
+    loadAdminLog();
+  }
+  initApp();
 });
-
-async function doSignIn(){
-  const email=document.getElementById('li-email').value.trim(),pw=document.getElementById('li-pw').value;
-  const btn=document.getElementById('li-btn'),err=document.getElementById('login-err');
-  if(!email||!pw){err.textContent='請填入 Email 和密碼';return;}
-  btn.disabled=true; btn.textContent='登入中…'; err.textContent='';
-  const {error}=await sb.auth.signInWithPassword({email,password:pw});
-  if(error){err.textContent='帳密錯誤，請再試一次';btn.disabled=false;btn.textContent='登入';}
+function doSignIn(){
+  const email=document.getElementById('li-email').value.trim();
+  const pw=document.getElementById('li-pw').value;
+  const err=document.getElementById('login-err');
+  err.textContent='';
+  if(!email||!pw){err.textContent='請填寫信箱與密碼';return;}
+  sb.auth.signInWithPassword({email,password:pw}).then(({error})=>{
+    if(error)err.textContent='帳密錯誤，請再試一次';
+  });
 }
-async function doSignOut(){await sb.auth.signOut();}
-
 function switchLoginTab(tab){
-  document.getElementById('lf-in').style.display=tab==='in'?'':'none';
-  document.getElementById('lf-up').style.display=tab==='up'?'':'none';
-  document.getElementById('ltab-in').classList.toggle('active',tab==='in');
-  document.getElementById('ltab-up').classList.toggle('active',tab==='up');
-  document.getElementById('login-err').textContent='';
-  document.getElementById('reg-err').textContent='';
+  document.querySelectorAll('.ltab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.lf').forEach(f=>f.style.display='none');
+  document.getElementById('ltab-'+tab).classList.add('active');
+  document.getElementById('lf-'+tab).style.display='';
 }
-
 async function doSignUp(){
   const email=document.getElementById('reg-email').value.trim();
   const pw=document.getElementById('reg-pw').value;
   const cn=document.getElementById('reg-cn').value.trim();
-  const btn=document.getElementById('reg-btn'),err=document.getElementById('reg-err');
-  if(!email||!pw||!cn){err.style.color='#dc2626';err.textContent='請填入所有欄位';return;}
-  if(cn.length>20){err.style.color='#dc2626';err.textContent='暱稱最多 20 個字元';return;}
-  if(pw.length<6){err.style.color='#dc2626';err.textContent='密碼至少需要 6 位';return;}
-  btn.disabled=true; btn.textContent='送出中…'; err.textContent='';
-  const {data,error}=await sb.auth.signUp({email,password:pw,options:{data:{codename:cn}}});
-  if(error){err.style.color='#dc2626';err.textContent=error.message;btn.disabled=false;btn.textContent='申請加入';return;}
-  err.style.color='#16a34a';
-  err.textContent='申請已送出！請等待管理員審核後即可登入。';
-  btn.textContent='已送出';
+  const err=document.getElementById('reg-err');
+  err.textContent='';
+  if(!email){err.textContent='請填寫信箱';return;}
+  if(pw.length<6){err.textContent='密碼至少 6 位';return;}
+  if(!cn){err.textContent='請填寫暱稱';return;}
+  const btn=document.getElementById('reg-btn');
+  btn.disabled=true;btn.textContent='申請中...';
+  const {error}=await sb.auth.signUp({email,password:pw,options:{data:{codename:cn}}});
+  btn.disabled=false;btn.textContent='申請加入';
+  if(error){
+    err.textContent=error.message.includes('already')?'此信箱已註冊，請切換至「登入」':('錯誤：'+error.message);
+    return;
+  }
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('pending-screen').style.display='';
 }
-
-async function doSetupInvite(){
-  const pw1=document.getElementById('inv-pw1').value,pw2=document.getElementById('inv-pw2').value;
-  const cn=document.getElementById('inv-cn').value.trim();
-  const err=document.getElementById('inv-err'),btn=document.getElementById('inv-btn');
-  if(pw1.length<6){err.textContent='密碼至少 6 位';return;}
-  if(pw1!==pw2){err.textContent='兩次密碼不一致';return;}
-  if(!cn){err.textContent='請填入代號';return;}
-  btn.disabled=true; btn.textContent='設定中…';
-  const {data,error}=await sb.auth.updateUser({password:pw1,data:{codename:cn}});
-  if(error){err.textContent='設定失敗：'+error.message;btn.disabled=false;btn.textContent='完成設定並進入';return;}
-  window.history.replaceState(null,'',window.location.pathname);
-  document.getElementById('invite-modal').style.display='none';
-  document.getElementById('app').style.display='block';
-  document.getElementById('user-chip').textContent=cn; applyWatermark(cn);
-  sb.from('activity_log').insert({user_email:data.user.email,codename:cn,action:'login',ua:navigator.userAgent.substring(0,250)});
-  if(data.user.email===ADMIN_EMAIL){document.getElementById('admin-panel').style.display='block';loadAdminLog();}
-  initApp();
-}
-
-document.addEventListener('DOMContentLoaded',()=>{
-  document.getElementById('li-pw').addEventListener('keydown',e=>{if(e.key==='Enter')doSignIn();});
-  document.getElementById('ann-text').addEventListener('keydown',e=>{if(e.key==='Enter')addAnnotation();});
-  document.getElementById('ann-date').value=new Date().toISOString().split('T')[0];
-});
-
-async function loadPendingUsers(){
+function loadPendingUsers(){
   const el=document.getElementById('adm-pending');
-  const {data,error}=await sb.from('profiles').select('id,email,codename,created_at').eq('approved',false).order('created_at',{ascending:true});
-  if(error){el.innerHTML='<span style="font-size:12px;color:red">載入失敗</span>';return;}
-  if(!data||!data.length){el.innerHTML='<span style="font-size:12px;color:var(--mu)">目前無待審核申請</span>';return;}
-  el.innerHTML=data.map(r=>{
-    const dt=new Date(r.created_at).toLocaleDateString('zh-TW');
-    return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">'
-      +'<span style="flex:1;font-size:13px"><b>'+(r.codename||'（未設定）')+'</b> <span style="color:var(--mu)">'+r.email+'</span></span>'
-      +'<span style="font-size:11px;color:var(--mu)">'+dt+'</span>'
-      +'<button onclick="approveUser(''+r.id+'')" style="padding:3px 10px;background:#16a34a;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">核准</button>'
-      +'<button onclick="rejectUser(''+r.id+'')" style="padding:3px 10px;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">拒絕</button>'
-      +'</div>';
-  }).join('');
+  if(!el)return;
+  sb.from('profiles').select('id,email,codename,approved').eq('approved',false).then(({data})=>{
+    if(!data||!data.length){el.innerHTML='<p style="color:#64748b;padding:8px 0">目前無待審核申請</p>';return;}
+    el.innerHTML=data.map(u=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #e2e8f0"><div><strong>'+u.codename+'</strong><br><span style="font-size:12px;color:#64748b">'+u.email+'</span></div><div><button onclick="approveUser(''+u.id+'')" style="background:#22c55e;color:#fff;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;margin-right:6px;font-size:13px">允許加入</button><button onclick="rejectUser(''+u.id+'')" style="background:#ef4444;color:#fff;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:13px">拒絕</button></div></div>').join('');
+  });
 }
 async function approveUser(uid){
   const {error}=await sb.from('profiles').update({approved:true}).eq('id',uid);
-  if(error){alert('核准失敗：'+error.message);return;}
-  loadPendingUsers();
+  if(!error)loadPendingUsers();
 }
 async function rejectUser(uid){
-  if(!confirm('確定要拒絕並刪除此申請？此操作無法復原。'))return;
+  if(!confirm('確定拒絕此申請？'))return;
   await sb.from('profiles').delete().eq('id',uid);
   loadPendingUsers();
 }
+
 
 async function loadAdminLog(){
   const {data,error}=await sb.from('activity_log').select('user_email,codename,action,ua,created_at').order('created_at',{ascending:false}).limit(100);
